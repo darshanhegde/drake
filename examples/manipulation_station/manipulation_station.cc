@@ -110,20 +110,36 @@ SpatialInertia<double> MakeCompositeGripperInertia(
 }
 
 // TODO(russt): Get these from SDF instead of having them hard-coded (#10022).
-void get_camera_poses(std::map<std::string, RigidTransform<double>>* pose_map) {
-  pose_map->emplace("0", RigidTransform<double>(
+void get_camera_poses_manipulation_station(std::map<std::string, RigidTransform<double>>& pose_map) {
+  pose_map.emplace("0", RigidTransform<double>(
                              RollPitchYaw<double>(2.549607, 1.357609, 2.971679),
                              Vector3d(-0.228895, -0.452176, 0.486308)));
 
-  pose_map->emplace("1",
+  pose_map.emplace("1",
                     RigidTransform<double>(
                         RollPitchYaw<double>(2.617427, -1.336404, -0.170522),
                         Vector3d(-0.201813, 0.469259, 0.417045)));
 
-  pose_map->emplace("2",
+  pose_map.emplace("2",
                     RigidTransform<double>(
                         RollPitchYaw<double>(-2.608978, 0.022298, 1.538460),
                         Vector3d(0.786258, -0.048422, 1.043315)));
+}
+
+void get_camera_poses_clutter_clearing_station(std::map<std::string, RigidTransform<double>>& pose_map) {
+  pose_map.emplace("0", RigidTransform<double>(
+                             RollPitchYaw<double>(-2.95, 0.0, 0.15),
+                             Vector3d(0.0, -0.75, 1.0)));
+
+  pose_map.emplace("1",
+                    RigidTransform<double>(
+                        RollPitchYaw<double>(-2.308978, 0.022298, 1.55),
+                        Vector3d(0.5, -0.5, 1.0)));
+
+  pose_map.emplace("2",
+                    RigidTransform<double>(
+                        RollPitchYaw<double>(-2.65, 0.0, -1.55),
+                        Vector3d(-0.5, -0.5, 1.0)));
 }
 
 // Load a SDF model and weld it to the MultibodyPlant.
@@ -189,9 +205,7 @@ void ManipulationStation<T>::AddManipulandFromFile(
 }
 
 template <typename T>
-void ManipulationStation<T>::SetupClutterClearingStation(
-    const std::optional<const math::RigidTransform<double>>& X_WCameraBody,
-    IiwaCollisionModel collision_model) {
+void ManipulationStation<T>::SetupClutterClearingStation(IiwaCollisionModel collision_model) {
   DRAKE_DEMAND(setup_ == Setup::kNone);
   setup_ = Setup::kClutterClearing;
 
@@ -211,6 +225,9 @@ void ManipulationStation<T>::SetupClutterClearingStation(
                                   "bin_base", X_WC, plant_);
   }
 
+  AddDefaultIiwa(collision_model);
+  AddDefaultWsg();
+
   // Add the camera.
   {
     // Typical D415 intrinsics for 848 x 480 resolution, note that rgb and
@@ -229,15 +246,14 @@ void ManipulationStation<T>::SetupClutterClearingStation(
     geometry::render::DepthCameraProperties camera_properties(
         kWidth, kHeight, fov_y, default_renderer_name_, 0.1, 2.0);
 
-    RegisterRgbdSensor("0", plant_->world_frame(),
-                       X_WCameraBody.value_or(math::RigidTransform<double>(
-                           math::RollPitchYaw<double>(-0.3, 0.8, 1.5),
-                           Eigen::Vector3d(0, -1.5, 1.5))),
-                       camera_properties);
-  }
+    std::map<std::string, RigidTransform<double>> camera_poses;
+    internal::get_camera_poses_clutter_clearing_station(camera_poses);
 
-  AddDefaultIiwa(collision_model);
-  AddDefaultWsg();
+    for(const auto& camera_pose:camera_poses){
+      RegisterRgbdSensor(camera_pose.first, plant_->world_frame(),
+                         camera_pose.second, camera_properties);
+    }
+  }
 }
 
 template <typename T>
@@ -287,7 +303,7 @@ void ManipulationStation<T>::SetupManipulationClassStation(
   // Add default cameras.
   {
     std::map<std::string, RigidTransform<double>> camera_poses;
-    internal::get_camera_poses(&camera_poses);
+    internal::get_camera_poses_manipulation_station(camera_poses);
     // Typical D415 intrinsics for 848 x 480 resolution, note that rgb and
     // depth are slightly different. And we are not able to model that at the
     // moment.

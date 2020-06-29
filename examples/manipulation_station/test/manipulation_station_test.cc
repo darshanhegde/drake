@@ -276,8 +276,7 @@ GTEST_TEST(ManipulationStationTest, AddManipulandFromFile) {
 
 GTEST_TEST(ManipulationStationTest, SetupClutterClearingStation) {
   ManipulationStation<double> station(0.002);
-  station.SetupClutterClearingStation(math::RigidTransform<double>::Identity(),
-                                      IiwaCollisionModel::kNoCollision);
+  station.SetupClutterClearingStation(IiwaCollisionModel::kNoCollision);
   station.Finalize();
 
   // Make sure we get through the setup and initialization.

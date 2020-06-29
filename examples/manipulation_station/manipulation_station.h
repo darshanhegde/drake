@@ -140,11 +140,8 @@ class ManipulationStation : public systems::Diagram<T> {
   /// the appropriate arguments.
   /// @note Must be called before Finalize().
   /// @note Only one of the `Setup___()` methods should be called.
-  /// @param X_WCameraBody Transformation between the world and the camera body.
   /// @param collision_model Determines which sdf is loaded for the IIWA.
-  void SetupClutterClearingStation(
-      const std::optional<const math::RigidTransformd>& X_WCameraBody = {},
-      IiwaCollisionModel collision_model = IiwaCollisionModel::kNoCollision);
+  void SetupClutterClearingStation(IiwaCollisionModel collision_model = IiwaCollisionModel::kNoCollision);
 
   /// Adds a default iiwa, wsg, cupboard, and 80/20 frame for the MIT
   /// Intelligent Robot Manipulation class, then calls

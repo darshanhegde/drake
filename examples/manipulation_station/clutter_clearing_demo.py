@@ -1,110 +1,148 @@
-import argparse
-import os
-import sys
+"""
+Provides some insight into the ManipulationStation model by printing out the
+contents of its (default) Context.
+"""
 
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib as mpl
 
-from pydrake.examples.manipulation_station import ManipulationStation, CreateClutterClearingYcbObjectList
-from pydrake.geometry import ConnectDrakeVisualizer
-from pydrake.multibody.plant import MultibodyPlant
-from pydrake.manipulation.planner import (
-    DifferentialInverseKinematicsParameters)
-from pydrake.geometry.render import (
-    DepthCameraProperties,
-    RenderLabel,
-    MakeRenderEngineVtk,
-    RenderEngineVtkParams,
-)
-from pydrake.math import RigidTransform, RollPitchYaw, RotationMatrix
+from pydrake.geometry.render import RenderLabel
+from pydrake.systems.drawing import plot_system_graphviz
+from pydrake.examples.manipulation_station import ManipulationStation, CreateClutterClearingYcbObjectList, \
+    IiwaCollisionModel
+from pydrake.math import RollPitchYaw, RigidTransform
 from pydrake.systems.analysis import Simulator
-from pydrake.systems.framework import (BasicVector, DiagramBuilder,
-                                       LeafSystem)
-from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+from pydrake.systems.perception import PointCloudConcatenation
+from pydrake.systems.sensors import PixelType, CameraInfo
+from pydrake.systems.meshcat_visualizer import MeshcatPointCloudVisualizer, MeshcatVisualizer, AddTriad
+from pydrake.perception import DepthImageToPointCloud, BaseField
+from pydrake.systems.framework import DiagramBuilder, AbstractValue
+
+
+reserved_labels = [
+    RenderLabel.kDoNotRender,
+    RenderLabel.kDontCare,
+    RenderLabel.kEmpty,
+    RenderLabel.kUnspecified,
+]
+
+
+def colorize_labels(image):
+    """Colorizes labels."""
+    # TODO(eric.cousineau): Revive and use Kuni's palette.
+    cc = mpl.colors.ColorConverter()
+    color_cycle = plt.rcParams["axes.prop_cycle"]
+    colors = np.array([cc.to_rgb(c["color"]) for c in color_cycle])
+    bg_color = [0, 0, 0]
+    image = np.squeeze(image)
+    background = np.zeros(image.shape[:2], dtype=bool)
+    for label in reserved_labels:
+        background |= image == int(label)
+    color_image = colors[image % len(colors)]
+    color_image[background] = bg_color
+    return color_image
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--target_realtime_rate", type=float, default=1.0,
-        help="Desired rate relative to real time.  See documentation for "
-             "Simulator::set_target_realtime_rate() for details.")
-    parser.add_argument(
-        "--duration", type=float, default=np.inf,
-        help="Desired duration of the simulation in seconds.")
-    parser.add_argument(
-        "--velocity_limit_factor", type=float, default=1.0,
-        help="This value, typically between 0 and 1, further limits the "
-             "iiwa14 joint velocities. It multiplies each of the seven "
-             "pre-defined joint velocity limits. "
-             "Note: The pre-defined velocity limits are specified by "
-             "iiwa14_velocity_limits, found in this python file.")
-    MeshcatVisualizer.add_argparse_argument(parser)
-    args = parser.parse_args()
-
     builder = DiagramBuilder()
 
     station = builder.AddSystem(ManipulationStation())
+    station.SetupClutterClearingStation(IiwaCollisionModel.kBoxCollision)
 
-    station.SetupClutterClearingStation()
     ycb_objects = CreateClutterClearingYcbObjectList()
     for model_file, X_WObject in ycb_objects:
         station.AddManipulandFromFile(model_file, X_WObject)
-
     station.Finalize()
-    ConnectDrakeVisualizer(builder, station.get_scene_graph(),
-                            station.GetOutputPort("pose_bundle"))
+
+    camera_name_list = station.get_camera_names()
+    camera_poses = station.GetStaticCameraPosesInWorld()
+
+    pc_concat = builder.AddSystem(PointCloudConcatenation(camera_name_list))
+
+    camera_info = CameraInfo(**{"width": 848, "height": 480, "fov_y": 0.712439311})
+    di2pcs = {}
+    for camera_name in camera_name_list:
+        di2pcs[camera_name] = builder.AddSystem(DepthImageToPointCloud(
+            camera_info, PixelType.kDepth16U, 1e-3,
+            fields=BaseField.kXYZs | BaseField.kRGBs))
+        builder.Connect(
+            station.GetOutputPort("camera_" + camera_name + "_rgb_image"),
+            di2pcs[camera_name].color_image_input_port())
+        builder.Connect(
+            station.GetOutputPort("camera_" + camera_name + "_depth_image"),
+            di2pcs[camera_name].depth_image_input_port())
+        builder.Connect(di2pcs[camera_name].point_cloud_output_port(), 
+                        pc_concat.GetInputPort("point_cloud_CiSi_{}".format(camera_name)))
+
     meshcat = builder.AddSystem(MeshcatVisualizer(
-        station.get_scene_graph(), zmq_url=args.meshcat))
+                station.get_scene_graph(), zmq_url="tcp://127.0.0.1:6000"))
     builder.Connect(station.GetOutputPort("pose_bundle"),
                     meshcat.get_input_port(0))
 
-    scene_graph = station.get_scene_graph()
-
-    renderer_name = "renderer"
-    scene_graph.AddRenderer(renderer_name, MakeRenderEngineVtk(RenderEngineVtkParams()))
-
-    depth_prop = DepthCameraProperties(width=640, height=480, fov_y=np.pi/4,
-                                       renderer_name=renderer_name,
-                                       z_near=0.01, z_far=10.)
-
-    world_id = station.GetBodyFrameIdOrThrow(station.world_body().index())
-    X_WB = xyz_rpy_deg([4, 0, 0], [-90, 0, 90])
-    sensor = RgbdSensor(
-        world_id, X_PB=X_WB,
-        color_properties=depth_prop, depth_properties=depth_prop)
-    builder.AddSystem(sensor)
-    builder.Connect(scene_graph.get_query_output_port(), sensor.query_object_input_port())
-
-    robot = station.get_controller_plant()
-    params = DifferentialInverseKinematicsParameters(robot.num_positions(),
-                                                     robot.num_velocities())
-
-    time_step = 0.005
-    params.set_timestep(time_step)
-    # True velocity limits for the IIWA14 (in rad, rounded down to the first
-    # decimal)
-    iiwa14_velocity_limits = np.array([1.4, 1.4, 1.7, 1.3, 2.2, 2.3, 2.3])
-    # Stay within a small fraction of those limits for this teleop demo.
-    factor = args.velocity_limit_factor
-    params.set_joint_velocity_limits((-factor*iiwa14_velocity_limits,
-                                      factor*iiwa14_velocity_limits))
+    scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(meshcat, name="scene_point_cloud"))
+    builder.Connect(pc_concat.GetOutputPort("point_cloud_FS"),
+                    scene_pc_vis.GetInputPort("point_cloud_P"))
 
     diagram = builder.Build()
     simulator = Simulator(diagram)
 
-    # This is important to avoid duplicate publishes to the hardware interface:
-    simulator.set_publish_every_time_step(False)
+    pc_concat_context = diagram.GetMutableSubsystemContext(pc_concat, simulator.get_mutable_context())
+    for camera_name in camera_name_list:
+        X_WP = camera_poses[camera_name]
+        pc_concat_context.FixInputPort(
+            pc_concat.GetInputPort("X_FCi_{}".format(camera_name)).get_index(),
+            AbstractValue.Make(X_WP))
 
-    station_context = diagram.GetMutableSubsystemContext(
-        station, simulator.get_mutable_context())
+    station_context = diagram.GetMutableSubsystemContext(station, simulator.get_mutable_context())
+    # Initial joint angles of the robot.
+    q0 = np.array([0, 0, 0, -1.75, 0, 1.0, 0])
 
-    print(station_context)
+    # Set initial state of the robot.
+    station_context.FixInputPort(
+        station.GetInputPort("iiwa_position").get_index(), q0)
+    station_context.FixInputPort(
+        station.GetInputPort("iiwa_feedforward_torque").get_index(),
+        np.zeros(7))
+    station_context.FixInputPort(
+        station.GetInputPort("wsg_position").get_index(), [0.05])
+    station_context.FixInputPort(
+        station.GetInputPort("wsg_force_limit").get_index(), [50])
 
-    station.GetInputPort("iiwa_feedforward_torque").FixValue(
-        station_context, np.zeros(7))
+    # simulator.set_publish_every_time_step(False)
+    simulator.set_target_realtime_rate(0.0)  # go as fast as possible
 
-    simulator.set_target_realtime_rate(args.target_realtime_rate)
-    simulator.AdvanceTo(args.duration)
+    simulator.Initialize()
+
+    for camera_name in camera_name_list:
+        AddTriad(meshcat.vis, camera_name, prefix="cameras", radius=0.007, length=0.15)
+        meshcat.vis["cameras"][camera_name].set_transform(camera_poses[camera_name].matrix())
+
+    station_context = diagram.GetMutableSubsystemContext(station, simulator.get_mutable_context())
+    
+    color_0_image = station.GetOutputPort("camera_0_rgb_image").Eval(station_context)
+    depth_0_image = station.GetOutputPort("camera_0_depth_image").Eval(station_context)
+    label_0_image = station.GetOutputPort("camera_0_label_image").Eval(station_context)
+
+    color_1_image = station.GetOutputPort("camera_1_rgb_image").Eval(station_context)
+    depth_1_image = station.GetOutputPort("camera_1_depth_image").Eval(station_context)
+    label_1_image = station.GetOutputPort("camera_1_label_image").Eval(station_context)
+
+    color_2_image = station.GetOutputPort("camera_2_rgb_image").Eval(station_context)
+    depth_2_image = station.GetOutputPort("camera_2_depth_image").Eval(station_context)
+    label_2_image = station.GetOutputPort("camera_2_label_image").Eval(station_context)
+
+    fig, axis = plt.subplots(3, 3)
+    axis[0, 0].imshow(color_0_image.data)
+    axis[0, 1].imshow(np.squeeze(depth_0_image.data))
+    axis[0, 2].imshow(np.squeeze(colorize_labels(label_0_image.data)))
+    axis[1, 0].imshow(color_1_image.data)
+    axis[1, 1].imshow(np.squeeze(depth_1_image.data))
+    axis[1, 2].imshow(np.squeeze(colorize_labels(label_1_image.data)))
+    axis[2, 0].imshow(color_2_image.data)
+    axis[2, 1].imshow(np.squeeze(depth_2_image.data))
+    axis[2, 2].imshow(np.squeeze(colorize_labels(label_2_image.data)))
+    plt.show()    
 
 
 if __name__ == '__main__':
