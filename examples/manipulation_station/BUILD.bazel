@@ -148,6 +148,20 @@ drake_py_library(
     ],
 )
 
+
+drake_py_library(
+    name = "clutter_clearing",
+    srcs = ["clutter_clearing_perception.py", 
+            "clutter_clearing_planner.py", 
+            "robot_plans.py", 
+            "plan_utils.py"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
+
 drake_py_binary(
     name = "joint_teleop",
     srcs = ["joint_teleop.py"],
@@ -175,13 +189,15 @@ drake_py_binary(
 )
 
 drake_py_binary(
-    name = "clutter_clearing_demo",
-    srcs = ["clutter_clearing_demo.py"],
+    name = "clutter_clearing_main",
+    srcs = ["clutter_clearing_main.py"],
     add_test_rule = 1,
     tags = vtk_test_tags(),
     test_rule_args = ["--test --target_realtime_rate=0.0 --duration=0.1"],
     test_rule_timeout = "moderate",  # Frequently exceeds short timeout in dbg.
     deps = [
+        ":clutter_clearing", 
+        ":differential_ik",
         "//bindings/pydrake",
     ],
 )

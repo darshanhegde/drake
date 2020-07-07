@@ -19,6 +19,7 @@
 #include "drake/math/discrete_algebraic_riccati_equation.h"
 #include "drake/math/discrete_lyapunov_equation.h"
 #include "drake/math/matrix_util.h"
+#include "drake/math/quaternion.h"
 #include "drake/math/orthonormal_basis.h"
 #include "drake/math/quadratic_form.h"
 #include "drake/math/rigid_transform.h"
@@ -353,6 +354,17 @@ void DoScalarIndependentDefinitions(py::module m) {
           },
           py::arg("matrix"), py::arg("tolerance") = 0.0,
           doc.IsPositiveDefinite.doc);
+
+  // Quaternion Util. 
+  m  // BR
+      .def("Slerp", 
+           [](const Eigen::Ref<const Eigen::MatrixXd>& q1, 
+              const Eigen::Ref<const Eigen::MatrixXd>& q2, 
+              double interpolation_parameter){
+               return Slerp(q1,q2, interpolation_parameter);
+           }, 
+           py::arg("q1"), py::arg("q2"), py::arg("interpolation_parameter"), 
+           doc.Slerp.doc);
 
   // Quadratic Form.
   m  // BR
