@@ -14,7 +14,7 @@ from pydrake.math import RollPitchYaw, RigidTransform
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.perception import PointCloudConcatenation
 from pydrake.systems.sensors import PixelType, CameraInfo
-from pydrake.systems.meshcat_visualizer import MeshcatPointCloudVisualizer, MeshcatVisualizer, AddTriad
+from pydrake.systems.meshcat_visualizer import MeshcatPointCloudVisualizer, MeshcatVisualizer, AddTriad, MeshcatContactVisualizer
 from pydrake.perception import DepthImageToPointCloud, BaseField
 from pydrake.systems.framework import DiagramBuilder, AbstractValue
 
@@ -22,7 +22,7 @@ from drake.examples.manipulation_station.differential_ik import DifferentialIK
 from pydrake.manipulation.planner import DifferentialInverseKinematicsParameters
 
 from drake.examples.manipulation_station.clutter_clearing_perception import ClutterClearingPerception
-from drake.examples.manipulation_station.clutter_clearing_planner import GeneratePickAndPlaceTrajectoriesAndGripperSetPoints, IiwaPlanRunner
+from drake.examples.manipulation_station.clutter_clearing_planner import PickAndDropTrajectoryGenerator
 from drake.examples.manipulation_station.robot_plans import JointSpacePlan
 from drake.examples.manipulation_station.plan_utils import GetPlanStartingTimes
 
@@ -50,10 +50,17 @@ def colorize_labels(image):
     return color_image
 
 
-XW_home = RigidTransform(p=np.array([0.493, 0.0, 0.312]), 
-                         rpy=RollPitchYaw([np.pi, -0.2084, -np.pi]))
-XW_target = RigidTransform(p=np.array([0.4238, 0.0, 0.594]), 
-                           rpy=RollPitchYaw([np.pi, 0.39159265, np.pi]))
+XW_home = RigidTransform(p=np.array([3.53636362e-04, -4.44084375e-01,  7.66707814e-01]), 
+                         rpy=RollPitchYaw([3.14159265,  0.24159265,  1.57159265]))
+XW_drop = RigidTransform(p=np.array([0.40316364, -0.11380088, 0.76670781]), 
+                         rpy=RollPitchYaw([3.18059265, -0.33110735, -0.05200735]))
+
+# XW_approach and XW_pick needs to be generated from perception system. 
+XW_approach = RigidTransform(p=np.array([-0.15, -0.62,  0.65]), 
+                             rpy=RollPitchYaw([3.14159265,  0.0,  2.563]))
+XW_pick = RigidTransform(p=np.array([-0.15, -0.62,  0.5]),
+                         rpy=RollPitchYaw([3.14159265,  0.0,  2.563]))
+
 
 def main():
     builder = DiagramBuilder()
@@ -102,32 +109,62 @@ def main():
     builder.Connect(pc_concat.GetOutputPort("point_cloud_FS"), 
                     perception.GetInputPort("point_cloud_FS"))
 
-    # Add cluttter clearing planning and execution system. 
-    q_traj_list, gripper_setpoint_list = GeneratePickAndPlaceTrajectoriesAndGripperSetPoints(station, 
-                                                                                             XW_home=XW_home, 
-                                                                                             XW_target=XW_target, 
-                                                                                             XW_O=XW_Object)
-    iiwa_plans = [JointSpacePlan(q_traj) for q_traj in q_traj_list]
-    plan_runner = builder.AddSystem(IiwaPlanRunner(iiwa_plans, gripper_setpoint_list))
+    AddTriad(meshcat.vis, "0", prefix="init", radius=0.007, length=0.15)
+    meshcat.vis["init"]["0"].set_transform(XW_home.matrix())
+    AddTriad(meshcat.vis, "0", prefix="target", radius=0.007, length=0.15)
+    meshcat.vis["target"]["0"].set_transform(XW_drop.matrix())
+    AddTriad(meshcat.vis, "0", prefix="approach", radius=0.007, length=0.15)
+    meshcat.vis["approach"]["0"].set_transform(XW_approach.matrix())
+    AddTriad(meshcat.vis, "0", prefix="pick", radius=0.007, length=0.15)
+    meshcat.vis["pick"]["0"].set_transform(XW_pick.matrix())
 
-    # Connect plan_runner outputs to the the simulation stattion. 
-    builder.Connect(plan_runner.GetOutputPort("gripper_setpoint"),
-                    station.GetInputPort("wsg_position"))
-    builder.Connect(plan_runner.GetOutputPort("force_limit"),
-                    station.GetInputPort("wsg_force_limit"))
-    builder.Connect(plan_runner.GetOutputPort("iiwa_position_command"),
+    # p_inter, rpy_inter = get_ee_interpolators(XW_home, XW_drop)
+    # for t in np.linspace(0.0, .99, 10):
+    #     p = p_inter(t)
+    #     rpy = rpy_inter(t)
+    #     XW = RigidTransform(p=p, rpy=rpy)
+    #     AddTriad(meshcat.vis, str(t), prefix="target", radius=0.007, length=0.15)
+    #     meshcat.vis["target"][str(t)].set_transform(XW.matrix())
+
+    for camera_name in camera_name_list:
+        AddTriad(meshcat.vis, camera_name, prefix="cameras", radius=0.007, length=0.15)
+        meshcat.vis["cameras"][camera_name].set_transform(camera_poses[camera_name].matrix())
+
+    contact_viz = MeshcatContactVisualizer(meshcat, plant=station.get_mutable_multibody_plant())
+    builder.AddSystem(contact_viz)
+    builder.Connect(station.GetOutputPort("pose_bundle"), contact_viz.GetInputPort("pose_bundle"))
+    builder.Connect(station.GetOutputPort("contact_results"), contact_viz.GetInputPort("contact_results"))
+
+    robot = station.get_controller_plant()
+    params = DifferentialInverseKinematicsParameters(robot.num_positions(), robot.num_velocities())
+
+    time_step = 0.05
+    params.set_timestep(time_step)
+    # True velocity limits for the IIWA14 (in rad, rounded down to the first
+    # decimal)
+    iiwa14_velocity_limits = np.array([1.4, 1.4, 1.7, 1.3, 2.2, 2.3, 2.3])
+    # Stay within a small fraction of those limits for this teleop demo.
+    factor = 1.0
+    params.set_joint_velocity_limits((-factor*iiwa14_velocity_limits,
+                                      factor*iiwa14_velocity_limits))
+
+    differential_ik = builder.AddSystem(DifferentialIK(
+        robot, robot.GetFrameByName("iiwa_link_7"), params, time_step))
+
+    builder.Connect(differential_ik.GetOutputPort("joint_position_desired"),
                     station.GetInputPort("iiwa_position"))
-    builder.Connect(plan_runner.GetOutputPort("iiwa_torque_command"),
-                    station.GetInputPort("iiwa_feedforward_torque"))
 
-    builder.Connect(station.GetOutputPort("iiwa_position_measured"),
-                    plan_runner.GetInputPort("iiwa_position"))
-    builder.Connect(station.GetOutputPort("iiwa_position_commanded"),
-                    plan_runner.GetInputPort("iiwa_position_cmd"))
-    builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
-                    plan_runner.GetInputPort("iiwa_velocity"))
-    builder.Connect(station.GetOutputPort("iiwa_torque_external"),
-                    plan_runner.GetInputPort("iiwa_torque_external"))
+    traj_gen = builder.AddSystem(PickAndDropTrajectoryGenerator(XW_home=XW_home, XW_approach=XW_approach, 
+                                                                XW_pick=XW_pick, XW_drop=XW_drop, start_time=1.0, end_time=7.0))
+
+    builder.Connect(traj_gen.GetOutputPort("rpy_xyz"), 
+                    differential_ik.GetInputPort("rpy_xyz_desired"))
+
+    builder.Connect(traj_gen.GetOutputPort("gripper_position"), 
+                    station.GetInputPort("wsg_position"))
+    builder.Connect(traj_gen.GetOutputPort("force_limit"),
+                    station.GetInputPort("wsg_force_limit"))
+
 
     diagram = builder.Build()
     simulator = Simulator(diagram)
@@ -140,55 +177,28 @@ def main():
             AbstractValue.Make(X_WP))
 
     station_context = diagram.GetMutableSubsystemContext(station, simulator.get_mutable_context())
+
     # Initial joint angles of the robot.
-    q0 = np.array([0, 0.6, 0, -1.75, 0, 1.0, 0])
-
-    # robot = station.get_controller_plant()
-    # params = DifferentialInverseKinematicsParameters(robot.num_positions(),
-    #                                                  robot.num_velocities())
-
-    # time_step = 0.005
-    # params.set_timestep(time_step)
-    # # True velocity limits for the IIWA14 (in rad, rounded down to the first
-    # # decimal)
-    # iiwa14_velocity_limits = np.array([1.4, 1.4, 1.7, 1.3, 2.2, 2.3, 2.3])
-    # # Stay within a small fraction of those limits for this teleop demo.
-    # factor = 1.0
-    # params.set_joint_velocity_limits((-factor*iiwa14_velocity_limits,
-    #                                   factor*iiwa14_velocity_limits))
-
-    # differential_ik = builder.AddSystem(DifferentialIK(
-    #     robot, robot.GetFrameByName("iiwa_link_7"), params, time_step))
-
-    # ee_pose = differential_ik.ForwardKinematics(q0)
-    # print(ee_pose.translation())
-    # print(RollPitchYaw(ee_pose.rotation()).vector())
+    q0 = station.GetOutputPort("iiwa_position_measured").Eval(station_context)
+    differential_ik.parameters.set_nominal_joint_position(q0)
+    differential_ik.SetPositions(diagram.GetMutableSubsystemContext(
+        differential_ik, simulator.get_mutable_context()), q0)
 
     # Set initial state of the robot.
     station_context.FixInputPort(
-        station.GetInputPort("iiwa_position").get_index(), q0)
-    station_context.FixInputPort(
         station.GetInputPort("iiwa_feedforward_torque").get_index(),
         np.zeros(7))
-    station_context.FixInputPort(
-        station.GetInputPort("wsg_position").get_index(), [0.05])
-    station_context.FixInputPort(
-        station.GetInputPort("wsg_force_limit").get_index(), [50])
-
+    
     simulator.set_publish_every_time_step(False)
-    simulator.set_target_realtime_rate(1.0)  # go as fast as possible
+    simulator.set_target_realtime_rate(0.0)  # go as fast as possible
 
-    # calculate starting time for all plans.
-    t_plan = GetPlanStartingTimes(iiwa_plans)
-    extra_time = 1.0
-    sim_duration = t_plan[-1] + extra_time
+    # # calculate starting time for all plans.
+    # t_plan = GetPlanStartingTimes(iiwa_plans)
+    # extra_time = 1.0
+    # sim_duration = t_plan[-1] + extra_time
 
     simulator.Initialize()
-    # simulator.AdvanceTo(sim_duration)
-
-    # for camera_name in camera_name_list:
-    #     AddTriad(meshcat.vis, camera_name, prefix="cameras", radius=0.007, length=0.15)
-    #     meshcat.vis["cameras"][camera_name].set_transform(camera_poses[camera_name].matrix())
+    simulator.AdvanceTo(14.0)
 
     # station_context = diagram.GetMutableSubsystemContext(station, simulator.get_mutable_context())
     
