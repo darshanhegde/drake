@@ -14,8 +14,6 @@ import pydrake.solvers.mathematicalprogram as mp
 from pydrake.systems.framework import BasicVector, LeafSystem
 from pydrake.systems.framework import (BasicVector, LeafSystem, PortDataType,
     AbstractValue, LeafSystem, PublishEvent, TriggerType)
-from drake.examples.manipulation_station.robot_plans import *
-from drake.examples.manipulation_station.plan_utils import ConnectPointsWithCubicPolynomial
 
 
 def get_ee_interpolator(init_pose, final_pose):
@@ -46,10 +44,12 @@ def get_ee_interpolator(init_pose, final_pose):
 
 class PickAndDropTrajectoryGenerator(LeafSystem):
 
-    def __init__(self, XW_home, XW_approach, XW_pick, XW_drop, start_time=1.0, end_time=11.0):
+    def __init__(self, XW_home, XW_drop, pick_and_drop_period):
         LeafSystem.__init__(self)
 
-        self.DeclareVectorOutputPort("rpy_xyz", BasicVector(6), 
+        self.DeclareInputPort("rpy_xyz_object", PortDataType.kVectorValued, 6)
+
+        self.DeclareVectorOutputPort("rpy_xyz_desired", BasicVector(6), 
                                      self.DoCalcPose)
         self.DeclareVectorOutputPort("gripper_position", BasicVector(1), 
                                      self.CalcGripperPosition)
@@ -58,46 +58,66 @@ class PickAndDropTrajectoryGenerator(LeafSystem):
 
         self.DeclarePeriodicDiscreteUpdate(0.05, 0.0)
 
-        self.start_time = start_time
-        self.approach_time = start_time + 2.0
-        self.pick_start_time = start_time + 3.0
-        self.pick_end_time = start_time + 4.0
-        self.home_time = start_time + 6.0
-        self.drop_start_time = start_time + 9.0
-        self.drop_end_time = start_time + 10.0
-        self.back_home_time = start_time + 12.0
-        self.end_time = end_time
+        self.start_time = 1.0
+        self.approach_time = self.start_time + 2.0
+        self.pick_start_time = self.start_time + 3.0
+        self.pick_end_time = self.start_time + 4.0
+        self.home_time = self.start_time + 8.0
+        self.drop_start_time = self.start_time + 11.0
+        self.drop_end_time = self.start_time + 12.0
+        self.back_home_time = self.start_time + 13.0
+
+        self.pick_and_drop_period = 14.0
 
         self.gripper_max = 0.107
         self.gripper_min = 0.001
         self.gripper_goal = self.gripper_max
 
-        self.goto_approach_interpolator = get_ee_interpolator(XW_home, XW_approach)
-        self.goto_pick_interpolator = get_ee_interpolator(XW_approach, XW_pick)
-        self.goto_home_interpolator = get_ee_interpolator(XW_pick, XW_home)
-        self.goto_drop_interpolator = get_ee_interpolator(XW_home, XW_drop)
-        self.goback_home_interpolator = get_ee_interpolator(XW_drop, XW_home)
+        self.XW_home = XW_home
+        self.XW_drop = XW_drop
+        self.XW_approach = None
+        self.XW_pick = None
+        self.approach_offset = np.array([0.0, 0.0, 0.25])
+        
 
     def CalcGripperPosition(self, context, output):
-        sim_time = context.get_time()
+        sim_time = context.get_time() % self.pick_and_drop_period
+
         if self.pick_start_time < sim_time <= self.pick_end_time: 
-            self.gripper_goal = self.gripper_min
+            t = (sim_time - self.pick_start_time) / (self.pick_end_time - self.pick_start_time)
+            self.gripper_goal = (1 - t) * self.gripper_max + t * self.gripper_min
         elif self.drop_start_time < sim_time <= self.drop_end_time:
-            self.gripper_goal = self.gripper_max
+            t = (sim_time - self.drop_start_time) / (self.drop_end_time - self.drop_start_time)
+            self.gripper_goal = (1 - t) * self.gripper_min + t * self.gripper_max
         elif sim_time > self.drop_end_time:
             self.gripper_goal = self.gripper_max
 
+        self.gripper_goal = np.clip(self.gripper_goal, a_max=self.gripper_max, a_min=self.gripper_min)
         output.SetAtIndex(0, self.gripper_goal)
 
     def CalcForceLimitOutput(self, context, output):
-        self._force_limit = 15
+        self._force_limit = 50
         output.SetAtIndex(0, self._force_limit)
 
     def DoCalcPose(self, context, output):
-        sim_time = context.get_time()
+        sim_time = context.get_time() % self.pick_and_drop_period
+
+        if self.XW_pick is None or sim_time == 0.0:
+            rpy_xyz_object = np.copy(self.EvalVectorInput(context, 0).get_value())
+            # gaurd against z-axis colliding with the gripper
+            rpy_xyz_object[5] = np.maximum(rpy_xyz_object[5], 0.28)
+            self.XW_pick = RigidTransform(p=rpy_xyz_object[3:], 
+                                          rpy=RollPitchYaw(rpy_xyz_object[:3]))
+            self.XW_approach = RigidTransform(p=rpy_xyz_object[3:] + self.approach_offset, 
+                                              rpy=RollPitchYaw(rpy_xyz_object[:3]))
+            self.goto_approach_interpolator = get_ee_interpolator(self.XW_home, self.XW_approach)
+            self.goto_pick_interpolator = get_ee_interpolator(self.XW_approach, self.XW_pick)
+            self.goto_home_interpolator = get_ee_interpolator(self.XW_pick, self.XW_home)
+            self.goto_drop_interpolator = get_ee_interpolator(self.XW_home, self.XW_drop)
+            self.goback_home_interpolator = get_ee_interpolator(self.XW_drop, self.XW_home)
 
         if sim_time <= self.start_time:
-            p, rpy = self.goto_approach_interpolator(0.0)
+            p, rpy = self.XW_home.translation(), RollPitchYaw(self.XW_home.rotation())
         elif self.start_time < sim_time <= self.approach_time:
             print("go to appraoch")
             t = (sim_time - self.start_time) / (self.approach_time - self.start_time)
@@ -128,9 +148,5 @@ class PickAndDropTrajectoryGenerator(LeafSystem):
         elif sim_time > self.back_home_time:
             p, rpy = self.goback_home_interpolator(1.0)
 
-        output.SetAtIndex(0, rpy.roll_angle())
-        output.SetAtIndex(1, rpy.pitch_angle())
-        output.SetAtIndex(2, rpy.yaw_angle())
-        output.SetAtIndex(3, p[0])
-        output.SetAtIndex(4, p[1])
-        output.SetAtIndex(5, p[2])
+        rpy_xyz = np.concatenate([rpy.vector(), p])
+        output.SetFromVector(rpy_xyz)

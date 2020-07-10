@@ -152,9 +152,7 @@ drake_py_library(
 drake_py_library(
     name = "clutter_clearing",
     srcs = ["clutter_clearing_perception.py", 
-            "clutter_clearing_planner.py", 
-            "robot_plans.py", 
-            "plan_utils.py"],
+            "clutter_clearing_planner.py"],
     visibility = ["//visibility:private"],
     deps = [
         "//bindings/pydrake",
