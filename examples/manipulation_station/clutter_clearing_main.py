@@ -15,7 +15,7 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.perception import PointCloudConcatenation
 from pydrake.systems.sensors import PixelType, CameraInfo
 from pydrake.systems.meshcat_visualizer import MeshcatPointCloudVisualizer, MeshcatVisualizer, AddTriad, MeshcatContactVisualizer
-from pydrake.perception import DepthImageToPointCloud, BaseField
+from pydrake.perception import DepthImageToPointCloud, Fields, BaseField, kDescriptorLabel
 from pydrake.systems.framework import DiagramBuilder, AbstractValue
 
 from drake.examples.manipulation_station.differential_ik import DifferentialIK
@@ -40,6 +40,7 @@ def main():
 
     # Add one of the objects to clutter clearing station. 
     ycb_objects = CreateClutterClearingYcbObjectList()
+
     XW_Objects = []
     for model_file, XW_Object in ycb_objects:
         station.AddManipulandFromFile(model_file, XW_Object)
@@ -57,13 +58,16 @@ def main():
         # Convert depth images to point cloud data. 
         di2pcs[camera_name] = builder.AddSystem(DepthImageToPointCloud(
             camera_info, PixelType.kDepth16U, 1e-3,
-            fields=BaseField.kXYZs | BaseField.kRGBs))
+            fields=Fields(BaseField.kXYZs | BaseField.kRGBs, kDescriptorLabel)))
         builder.Connect(
             station.GetOutputPort("camera_" + camera_name + "_rgb_image"),
             di2pcs[camera_name].color_image_input_port())
         builder.Connect(
             station.GetOutputPort("camera_" + camera_name + "_depth_image"),
             di2pcs[camera_name].depth_image_input_port())
+        builder.Connect(
+            station.GetOutputPort("camera_" + camera_name + "_label_image"), 
+            di2pcs[camera_name].label_image_input_port())
         builder.Connect(di2pcs[camera_name].point_cloud_output_port(), 
                         pc_concat.GetInputPort("point_cloud_CiSi_{}".format(camera_name)))        
 
@@ -74,7 +78,8 @@ def main():
                     meshcat.get_input_port(0))
 
     # Add point cloud visualization
-    scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(meshcat, name="scene_point_cloud"))
+    scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(meshcat, name="scene_point_cloud", 
+                                                                filter_labels=range(14, 20)))
     builder.Connect(pc_concat.GetOutputPort("point_cloud_FS"),
                     scene_pc_vis.GetInputPort("point_cloud_P"))
 
@@ -98,15 +103,16 @@ def main():
     builder.Connect(station.GetOutputPort("pose_bundle"), contact_viz.GetInputPort("pose_bundle"))
     builder.Connect(station.GetOutputPort("contact_results"), contact_viz.GetInputPort("contact_results"))
 
+    pick_and_drop_period = 11.0
     # Add clutter clearing perception system 
-    perception = builder.AddSystem(ClutterClearingPerception(time_step=0.005, X_WOs=XW_Objects, 
-                                                             pick_and_drop_period=14.0))
+    perception = builder.AddSystem(ClutterClearingPerception(time_step=0.005, 
+                                                             pick_and_drop_period=pick_and_drop_period))
     builder.Connect(pc_concat.GetOutputPort("point_cloud_FS"), 
                     perception.GetInputPort("point_cloud_FS"))
 
     # Add Pick and Drop Trajectory generator. 
     traj_gen = builder.AddSystem(PickAndDropTrajectoryGenerator(XW_home=XW_home, XW_drop=XW_drop, 
-                                                                pick_and_drop_period=14.0))
+                                                                pick_and_drop_period=pick_and_drop_period))
 
     # Connect perception to trajectory generator. 
     builder.Connect(perception.GetOutputPort("rpy_xyz_object"), 
@@ -170,8 +176,8 @@ def main():
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(0.0)  
     simulator.Initialize()
-    simulator.AdvanceTo(1.0)
-    # simulator.AdvanceTo(len(ycb_objects) * 14.0 + 1.0)
+    # simulator.AdvanceTo(1.0)
+    simulator.AdvanceTo(len(ycb_objects) * pick_and_drop_period + 1.0)
 
 
 if __name__ == '__main__':

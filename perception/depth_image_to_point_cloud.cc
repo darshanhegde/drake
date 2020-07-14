@@ -16,6 +16,7 @@ using drake::systems::sensors::Image;
 using drake::systems::sensors::ImageDepth16U;
 using drake::systems::sensors::ImageDepth32F;
 using drake::systems::sensors::ImageRgba8U;
+using drake::systems::sensors::ImageLabel16I;
 using drake::systems::sensors::ImageTraits;
 using drake::systems::sensors::InvalidDepth;
 using drake::systems::sensors::PixelType;
@@ -40,6 +41,10 @@ const AbstractValue& GetModelValue(PixelType pixel_type) {
     static const never_destroyed<Value<ImageRgba8U>> image8u;
     return image8u.access();
   }
+  if (pixel_type == PixelType::kLabel16I) {
+    static const never_destroyed<Value<ImageLabel16I>> image16i;
+    return image16i.access();
+  }
   throw std::logic_error("Unsupported pixel_type in DepthImageToPointCloud");
 }
 
@@ -47,14 +52,16 @@ const AbstractValue& GetModelValue(PixelType pixel_type) {
 // cloud output? (This would require adding support for colored point clouds,
 // because current implementation assume that an RGB image will still line up).
 template <PixelType pixel_type>
-void DoConvert(const std::optional<pc_flags::BaseFieldT>& exact_base_fields,
+void DoConvert(const std::optional<pc_flags::Fields>& exact_fields,
                const CameraInfo& camera_info,
                const RigidTransformd* const camera_pose,
                const Image<pixel_type>& depth_image,
-               const ImageRgba8U* color_image, const float scale,
+               const ImageRgba8U* color_image, 
+               const ImageLabel16I* label_image, 
+               const float scale,
                PointCloud* output) {
-  if (exact_base_fields) {
-    DRAKE_THROW_UNLESS(output->fields().base_fields() == *exact_base_fields);
+  if (exact_fields) {
+    DRAKE_THROW_UNLESS(output->fields() == *exact_fields);
   }
 
   // Reset the output size, if necessary.  We can leave the memory
@@ -67,6 +74,10 @@ void DoConvert(const std::optional<pc_flags::BaseFieldT>& exact_base_fields,
   std::optional<Eigen::Ref<Matrix3X<uint8_t>>> output_rgb;
   if (color_image) {
     output_rgb = output->mutable_rgbs();
+  }
+  std::optional<Eigen::Ref<MatrixX<float>>> output_labels;
+  if(label_image) {
+     output_labels = output->mutable_descriptors();
   }
 
   const int height = depth_image.height();
@@ -96,6 +107,10 @@ void DoConvert(const std::optional<pc_flags::BaseFieldT>& exact_base_fields,
         const auto color = color_image->at(u, v);
         output_rgb->col(col) = Vector3<uint8_t>(color[0], color[1], color[2]);
       }
+      if (label_image) {
+        const auto label = label_image->at(u, v);
+        output_labels->col(col) = Vector1<float>(label[0]);
+      }
     }
   }
 }
@@ -104,7 +119,7 @@ void DoConvert(const std::optional<pc_flags::BaseFieldT>& exact_base_fields,
 
 DepthImageToPointCloud::DepthImageToPointCloud(
     const CameraInfo& camera_info, PixelType depth_pixel_type, float scale,
-    const pc_flags::BaseFieldT fields)
+    const pc_flags::Fields fields)
     : camera_info_(camera_info),
       depth_pixel_type_(depth_pixel_type),
       scale_(scale),
@@ -121,6 +136,12 @@ DepthImageToPointCloud::DepthImageToPointCloud(
                                      GetModelValue(PixelType::kRgba8U))
           .get_index();
 
+  // Optional input port for label image. 
+  label_image_input_port_ = 
+      this->DeclareAbstractInputPort("label_image", 
+                                    GetModelValue(PixelType::kLabel16I))
+          .get_index();
+                                  
   // Optional input port for camera pose.
   camera_pose_input_port_ =
       this->DeclareAbstractInputPort("camera_pose", Value<RigidTransformd>{})
@@ -138,9 +159,11 @@ void DepthImageToPointCloud::Convert(
     const std::optional<math::RigidTransformd>& camera_pose,
     const systems::sensors::ImageDepth32F& depth_image,
     const std::optional<systems::sensors::ImageRgba8U>& color_image,
+    const std::optional<systems::sensors::ImageLabel16I>& label_image,
     const std::optional<float>& scale, PointCloud* output) {
   DoConvert(std::nullopt, camera_info, camera_pose ? &*camera_pose : nullptr,
             depth_image, color_image ? &*color_image : nullptr,
+            label_image ? &*label_image : nullptr, 
             scale.value_or(1.0f), output);
 }
 
@@ -149,9 +172,11 @@ void DepthImageToPointCloud::Convert(
     const std::optional<math::RigidTransformd>& camera_pose,
     const systems::sensors::ImageDepth16U& depth_image,
     const std::optional<systems::sensors::ImageRgba8U>& color_image,
+    const std::optional<systems::sensors::ImageLabel16I>& label_image,
     const std::optional<float>& scale, PointCloud* output) {
   DoConvert(std::nullopt, camera_info, camera_pose ? &*camera_pose : nullptr,
             depth_image, color_image ? &*color_image : nullptr,
+            label_image ? &*label_image : nullptr, 
             scale.value_or(1.0f), output);
 }
 
@@ -161,11 +186,13 @@ void DepthImageToPointCloud::CalcOutput32F(
       this->EvalInputValue<ImageDepth32F>(context, depth_image_input_port_);
   const auto* const color_image_or_null =
       this->EvalInputValue<ImageRgba8U>(context, color_image_input_port_);
+  const auto* const label_image_or_null = 
+      this->EvalInputValue<ImageLabel16I>(context, label_image_input_port_);
   const auto* const pose_or_null =
       this->EvalInputValue<RigidTransformd>(context, camera_pose_input_port_);
   DRAKE_THROW_UNLESS(depth_image != nullptr);
   DoConvert(fields_, camera_info_, pose_or_null, *depth_image,
-            color_image_or_null, scale_, output);
+            color_image_or_null, label_image_or_null, scale_, output);
 }
 
 void DepthImageToPointCloud::CalcOutput16U(
@@ -174,11 +201,13 @@ void DepthImageToPointCloud::CalcOutput16U(
       this->EvalInputValue<ImageDepth16U>(context, depth_image_input_port_);
   const auto* const color_image_or_null =
       this->EvalInputValue<ImageRgba8U>(context, color_image_input_port_);
+  const auto* const label_image_or_null = 
+      this->EvalInputValue<ImageLabel16I>(context, label_image_input_port_);
   const auto* const pose_or_null =
       this->EvalInputValue<RigidTransformd>(context, camera_pose_input_port_);
   DRAKE_THROW_UNLESS(depth_image != nullptr);
   DoConvert(fields_, camera_info_, pose_or_null, *depth_image,
-            color_image_or_null, scale_, output);
+            color_image_or_null, label_image_or_null, scale_, output);
 }
 
 }  // namespace perception

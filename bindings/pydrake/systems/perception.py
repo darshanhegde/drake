@@ -2,7 +2,7 @@ import numpy as np
 
 from pydrake.common.value import AbstractValue
 from pydrake.math import RigidTransform
-from pydrake.perception import BaseField, Fields, PointCloud
+from pydrake.perception import BaseField, Fields, PointCloud, kDescriptorLabel
 from pydrake.systems.framework import LeafSystem
 
 
@@ -19,9 +19,10 @@ def _TileColors(color, dim):
     return np.tile(np.array([color]).T, (1, dim))
 
 
-def _ConcatenatePointClouds(points_dict, colors_dict):
+def _ConcatenatePointClouds(points_dict, colors_dict, labels_dict):
     scene_points = None
     scene_colors = None
+    scene_labels = None
 
     for id in points_dict:
         if scene_points is None:
@@ -34,12 +35,18 @@ def _ConcatenatePointClouds(points_dict, colors_dict):
         else:
             scene_colors = np.hstack((colors_dict[id], scene_colors))
 
+        if scene_labels is None:
+            scene_labels = labels_dict[id]
+        else:
+            scene_labels = np.hstack((labels_dict[id], scene_labels))
+
     valid_indices = np.logical_not(np.isnan(scene_points))
 
     scene_points = scene_points[:, valid_indices[0, :]]
     scene_colors = scene_colors[:, valid_indices[0, :]]
+    scene_labels = scene_labels[:, valid_indices[0, :]]
 
-    return scene_points, scene_colors
+    return scene_points, scene_colors, scene_labels
 
 
 class PointCloudConcatenation(LeafSystem):
@@ -80,7 +87,7 @@ class PointCloudConcatenation(LeafSystem):
 
         self._default_rgb = np.array(default_rgb)
 
-        output_fields = Fields(BaseField.kXYZs | BaseField.kRGBs)
+        output_fields = Fields(BaseField.kXYZs | BaseField.kRGBs, kDescriptorLabel)
 
         for id in self._id_list:
             self._point_cloud_ports[id] = self.DeclareAbstractInputPort(
@@ -99,6 +106,7 @@ class PointCloudConcatenation(LeafSystem):
     def _AlignPointClouds(self, context):
         points = {}
         colors = {}
+        labels = {}
 
         for id in self._id_list:
             point_cloud = self.EvalAbstractInput(
@@ -114,11 +122,14 @@ class PointCloudConcatenation(LeafSystem):
                 colors[id] = _TileColors(
                     self._default_rgb, point_cloud.xyzs().shape[1])
 
-        return _ConcatenatePointClouds(points, colors)
+            labels[id] = point_cloud.descriptors()
+
+        return _ConcatenatePointClouds(points, colors, labels)
 
     def DoCalcOutput(self, context, output):
-        scene_points, scene_colors = self._AlignPointClouds(context)
+        scene_points, scene_colors, scene_labels = self._AlignPointClouds(context)
 
         output.get_mutable_value().resize(scene_points.shape[1])
         output.get_mutable_value().mutable_xyzs()[:] = scene_points
         output.get_mutable_value().mutable_rgbs()[:] = scene_colors
+        output.get_mutable_value().mutable_descriptors()[:] = scene_labels

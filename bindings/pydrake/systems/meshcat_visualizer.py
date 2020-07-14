@@ -616,7 +616,7 @@ class MeshcatPointCloudVisualizer(LeafSystem):
 
     def __init__(self, meshcat_viz, draw_period=_DEFAULT_PUBLISH_PERIOD,
                  name="point_cloud", X_WP=Isometry3.Identity(),
-                 default_rgb=[255., 255., 255.]):
+                 default_rgb=[255., 255., 255.], filter_labels=[]):
         """
         Args:
             meshcat_viz: Either a native meshcat.Visualizer or a pydrake
@@ -634,6 +634,7 @@ class MeshcatPointCloudVisualizer(LeafSystem):
         self._meshcat_viz = _get_native_visualizer(meshcat_viz)
         self._X_WP = X_WP
         self._default_rgb = np.array(default_rgb)
+        self._filter_labels = filter_labels
         self._name = name
 
         self.set_name('meshcat_point_cloud_visualizer_' + name)
@@ -661,6 +662,12 @@ class MeshcatPointCloudVisualizer(LeafSystem):
         # pydrake `PointCloud.rgbs()` are on [0..255], while meshcat
         # `PointCloud` colors are on [0..1].
         rgbs = rgbs / 255.  # Do not use in-place so we can promote types.
+
+        valid_labels = point_cloud_P.descriptors()[:, valid]
+        if self._filter_labels:
+            labels_mask = np.any([valid_labels[0] == filter_label for filter_label in self._filter_labels], axis=0)
+            p_PQs = p_PQs[:, labels_mask]
+            rgbs = rgbs[:, labels_mask]
         # Send to meshcat.
         self._meshcat_viz[self._name].set_object(g.PointCloud(p_PQs, rgbs))
         self._meshcat_viz[self._name].set_transform(self._X_WP.matrix())

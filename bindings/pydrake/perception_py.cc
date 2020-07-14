@@ -33,13 +33,36 @@ void init_pc_flags(py::module m) {
   }
 
   {
+    using Class = DescriptorType;
+    constexpr auto& cls_doc = doc.DescriptorType;
+    py::class_<Class>(m, "DescriptorType", cls_doc.doc)
+        .def(py::init<int, const char*>(), py::arg("size"), py::arg("name"), 
+             cls_doc.ctor.doc)
+        .def("size", &Class::size, cls_doc.size.doc)
+        .def("name", &Class::name, cls_doc.name.doc)
+        .def(py::self == py::self)
+        .def(py::self != py::self);
+  }
+
+  //Predefined Descriptor types. 
+  m.attr("kDescriptorNone") = &kDescriptorNone;
+  m.attr("kDescriptorCurvature") = &kDescriptorCurvature;
+  m.attr("kDescriptorFPFH") = &kDescriptorFPFH;
+  m.attr("kDescriptorLabel") = &kDescriptorLabel;
+
+  {
     using Class = Fields;
     constexpr auto& cls_doc = doc.Fields;
     py::class_<Class>(m, "Fields", cls_doc.doc)
         .def(py::init<BaseFieldT>(), py::arg("base_fields"), cls_doc.ctor.doc)
+        .def(py::init<DescriptorType&>(), py::arg("descriptor_type"), cls_doc.ctor.doc)
+        .def(py::init<BaseFieldT, DescriptorType&>(), py::arg("base_fields"), 
+             py::arg("descriptor_type"), cls_doc.ctor.doc)
         .def("base_fields", &Class::base_fields, cls_doc.base_fields.doc)
         .def("has_base_fields", &Class::has_base_fields,
             cls_doc.has_base_fields.doc)
+        .def("descriptor_type", &Class::descriptor_type, cls_doc.descriptor_type.doc)
+        .def("has_descriptor", &Class::has_descriptor, cls_doc.has_descriptor.doc)
         .def(py::self | py::self)
         .def(py::self & py::self)
         .def(py::self == py::self)
@@ -108,6 +131,20 @@ void init_perception(py::module m) {
         .def("rgb", &Class::rgb, py::arg("i"), cls_doc.rgb.doc)
         .def("mutable_rgb", &Class::mutable_rgb, py::arg("i"),
             py_reference_internal, cls_doc.mutable_rgb.doc)
+        // TODO(darshanhegde) Bind the overloaded functions. 
+        // .def("has_descriptors", py::overload_cast<>(&Class::has_descriptors), py_reference_internal, cls_doc.has_descriptors.doc)
+        // .def("has_descriptors", py::overload_cast<pc_flags::DescriptorType&>(&Class::has_descriptors),
+        //      py::arg("descriptor_type"), cls_doc.has_descriptors.doc)
+        .def("descriptor_type", &Class::descriptor_type, 
+             py_reference_internal, cls_doc.descriptor_type.doc)
+        .def("descriptors", &Class::descriptors, 
+             py_reference_internal, cls_doc.descriptors.doc)
+        .def("mutable_descriptors", &Class::mutable_descriptors, 
+             py_reference_internal, cls_doc.mutable_descriptors.doc)
+        .def("descriptor", &Class::descriptor, py::arg("i"), 
+             py_reference_internal, cls_doc.descriptor.doc)
+        .def("mutable_descriptor", &Class::mutable_descriptor, py::arg("i"), 
+             py_reference_internal, cls_doc.mutable_descriptor.doc)
         // Mutators.
         .def(
             "SetFrom",
@@ -125,15 +162,17 @@ void init_perception(py::module m) {
     py::class_<Class, LeafSystem<double>>(
         m, "DepthImageToPointCloud", cls_doc.doc)
         .def(py::init<const CameraInfo&, PixelType, float,
-                 pc_flags::BaseFieldT>(),
+                 pc_flags::Fields>(),
             py::arg("camera_info"),
             py::arg("pixel_type") = PixelType::kDepth32F,
-            py::arg("scale") = 1.0, py::arg("fields") = pc_flags::kXYZs,
+            py::arg("scale") = 1.0, py::arg("fields") = pc_flags::Fields(pc_flags::kXYZs),
             cls_doc.ctor.doc)
         .def("depth_image_input_port", &Class::depth_image_input_port,
             py_reference_internal, cls_doc.depth_image_input_port.doc)
         .def("color_image_input_port", &Class::color_image_input_port,
             py_reference_internal, cls_doc.color_image_input_port.doc)
+        .def("label_image_input_port", &Class::label_image_input_port, 
+            py_reference_internal, cls_doc.label_image_input_port.doc)
         .def("point_cloud_output_port", &Class::point_cloud_output_port,
             py_reference_internal, cls_doc.point_cloud_output_port.doc);
   }

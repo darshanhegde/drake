@@ -71,6 +71,8 @@ constexpr DescriptorType kDescriptorNone(0, "kDescriptorNone");
 constexpr DescriptorType kDescriptorCurvature(1, "kDescriptorCurvature");
 /// Point-feature-histogram.
 constexpr DescriptorType kDescriptorFPFH(33, "kDescriptorFPFH");
+/// Label 
+constexpr DescriptorType kDescriptorLabel(1, "kDescriptorLabel");
 
 /**
  * Allows combination of `BaseField` and `DescriptorType` for a `PointCloud`.

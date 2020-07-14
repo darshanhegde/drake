@@ -22,6 +22,7 @@ namespace perception {
 /// @system{ DepthImageToPointCloud,
 ///          @input_port{depth_image}
 ///          @input_port{color_image (optional)}
+///          @input_port{label_image (optional)}
 ///          @input_port{camera_pose (optional)},
 ///          @output_port{point_cloud}
 /// }
@@ -59,7 +60,7 @@ class DepthImageToPointCloud final : public systems::LeafSystem<double> {
       const systems::sensors::CameraInfo& camera_info,
       systems::sensors::PixelType depth_pixel_type =
           systems::sensors::PixelType::kDepth32F,
-      float scale = 1.0, pc_flags::BaseFieldT fields = pc_flags::kXYZs);
+      float scale = 1.0, pc_flags::Fields fields = pc_flags::Fields(pc_flags::kXYZs));
 
   /// Returns the abstract valued input port that expects either an
   /// ImageDepth16U or ImageDepth32F (depending on the constructor argument).
@@ -70,6 +71,11 @@ class DepthImageToPointCloud final : public systems::LeafSystem<double> {
   /// Returns the abstract valued input port that expects an ImageRgba8U.
   const systems::InputPort<double>& color_image_input_port() const {
     return this->get_input_port(color_image_input_port_);
+  }
+
+  /// Returns the abstract valaued input port that expects an ImageLbale16I. 
+  const systems::InputPort<double>& label_image_input_port() const {
+    return this->get_input_port(label_image_input_port_);
   }
 
   /// Returns the abstract valued input port that expects X_PC as a
@@ -98,6 +104,7 @@ class DepthImageToPointCloud final : public systems::LeafSystem<double> {
       const std::optional<math::RigidTransformd>& camera_pose,
       const systems::sensors::ImageDepth32F& depth_image,
       const std::optional<systems::sensors::ImageRgba8U>& color_image,
+      const std::optional<systems::sensors::ImageLabel16I>& label_image, 
       const std::optional<float>& scale, PointCloud* cloud);
 
   /// Converts a depth image to a point cloud using direct arguments instead of
@@ -112,6 +119,7 @@ class DepthImageToPointCloud final : public systems::LeafSystem<double> {
       const std::optional<math::RigidTransformd>& camera_pose,
       const systems::sensors::ImageDepth16U& depth_image,
       const std::optional<systems::sensors::ImageRgba8U>& color_image,
+      const std::optional<systems::sensors::ImageLabel16I>& label_image,
       const std::optional<float>& scale, PointCloud* cloud);
 
  private:
@@ -121,10 +129,11 @@ class DepthImageToPointCloud final : public systems::LeafSystem<double> {
   const systems::sensors::CameraInfo camera_info_;
   const systems::sensors::PixelType depth_pixel_type_;
   const float scale_;
-  const pc_flags::BaseFieldT fields_;
+  const pc_flags::Fields fields_;
 
   systems::InputPortIndex depth_image_input_port_{};
   systems::InputPortIndex color_image_input_port_{};
+  systems::InputPortIndex label_image_input_port_{};
   systems::InputPortIndex camera_pose_input_port_{};
 };
 
