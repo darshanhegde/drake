@@ -120,14 +120,16 @@ class ClutterClearingPerception(LeafSystem):
             object_pc = mesh.sample_points_uniformly(number_of_points=10000)
             self.seg_label_and_pc.append((label, object_pc, object_trans))
 
-    def compute_grasp(self, X_WO):
+    def compute_grasp(self, X_WO, z_max):
         """
         @param X_WO is a math::RigidTransform for object to grasp. 
         """
         position = X_WO.translation()
         rpy_object = RollPitchYaw(X_WO.rotation())
         rpy_ee = RollPitchYaw([-np.pi, 0.025, rpy_object.yaw_angle()])
-        return np.concatenate([rpy_ee.vector(), position])
+        rpy_xyz = np.concatenate([rpy_ee.vector(), position[:2], [max(position[2], z_max) + 0.05]])
+        print("rpy_xyz: ", rpy_xyz)
+        return rpy_xyz
 
     def ComputeGrasp(self, context, output):
         sim_time = context.get_time()
@@ -136,9 +138,9 @@ class ClutterClearingPerception(LeafSystem):
             if self.seg_label_and_pc:
                 # Read point cloud and convert to Open3D format. 
                 point_cloud = self.GetInputPort("point_cloud_FS").Eval(context)
-                label, source_obj_pc, source_obj_trans = self.seg_label_and_pc.pop(0)
+                label, source_obj_pc, source_obj_trans = self.seg_label_and_pc.pop()
                 pc_seg_mask = (point_cloud.descriptors()[0] == label)
-                scene_obj_pc_xyzs =  np.copy(point_cloud.xyzs()[:, pc_seg_mask])
+                scene_obj_pc_xyzs =  point_cloud.xyzs()[:, pc_seg_mask]
                 scene_obj_pc = o3d.geometry.PointCloud()
                 scene_obj_pc.points = o3d.utility.Vector3dVector(scene_obj_pc_xyzs.T)
 
@@ -173,6 +175,8 @@ class ClutterClearingPerception(LeafSystem):
 
                 X_WO = RigidTransform(p=transformation[:-1, -1], rpy=RollPitchYaw(R_estimate.as_euler('xyz')))
                 print("X_WO_estimate: ", X_WO.translation(), np.rad2deg(RollPitchYaw(X_WO.rotation()).vector()))
-                self.grasp = self.compute_grasp(X_WO)
+                z_max = np.max(scene_obj_pc_xyzs[:, 2])
+                print("z_max: ", z_max)
+                self.grasp = self.compute_grasp(X_WO, z_max)
 
         output.SetFromVector(self.grasp)

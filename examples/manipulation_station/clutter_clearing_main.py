@@ -103,9 +103,9 @@ def main():
     builder.Connect(station.GetOutputPort("pose_bundle"), contact_viz.GetInputPort("pose_bundle"))
     builder.Connect(station.GetOutputPort("contact_results"), contact_viz.GetInputPort("contact_results"))
 
-    pick_and_drop_period = 11.0
+    pick_and_drop_period = 9.0
     # Add clutter clearing perception system 
-    perception = builder.AddSystem(ClutterClearingPerception(time_step=0.005, 
+    perception = builder.AddSystem(ClutterClearingPerception(time_step=0.05, 
                                                              pick_and_drop_period=pick_and_drop_period))
     builder.Connect(pc_concat.GetOutputPort("point_cloud_FS"), 
                     perception.GetInputPort("point_cloud_FS"))

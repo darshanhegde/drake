@@ -58,14 +58,14 @@ class PickAndDropTrajectoryGenerator(LeafSystem):
 
         self.DeclarePeriodicDiscreteUpdate(0.05, 0.0)
 
-        self.start_time = 1.0
+        self.start_time = 0.5
         self.approach_time = self.start_time + 2.0
-        self.pick_start_time = self.start_time + 3.0
-        self.pick_end_time = self.start_time + 3.5
+        self.pick_start_time = self.start_time + 3.5
+        self.pick_end_time = self.start_time + 4.0
         self.home_time = self.start_time + 6.0
-        self.drop_start_time = self.start_time + 8.0
-        self.drop_end_time = self.start_time + 8.5
-        self.back_home_time = self.start_time + 10.0
+        self.drop_start_time = self.start_time + 7.5
+        self.drop_end_time = self.start_time + 8.0
+        self.back_home_time = self.start_time + 9.0
 
         self.pick_and_drop_period = pick_and_drop_period
 
@@ -77,7 +77,7 @@ class PickAndDropTrajectoryGenerator(LeafSystem):
         self.XW_drop = XW_drop
         self.XW_approach = None
         self.XW_pick = None
-        self.approach_offset = np.array([0.0, 0.0, 0.2])
+        self.approach_offset = np.array([0.0, 0.0, 0.185])
         
 
     def CalcGripperPosition(self, context, output):
@@ -106,6 +106,7 @@ class PickAndDropTrajectoryGenerator(LeafSystem):
             rpy_xyz_object = np.copy(self.EvalVectorInput(context, 0).get_value())
             # gaurd against z-axis colliding with the gripper
             rpy_xyz_object[5] = np.maximum(rpy_xyz_object[5], 0.28)
+
             self.XW_pick = RigidTransform(p=rpy_xyz_object[3:], 
                                           rpy=RollPitchYaw(rpy_xyz_object[:3]))
             self.XW_approach = RigidTransform(p=rpy_xyz_object[3:] + self.approach_offset, 

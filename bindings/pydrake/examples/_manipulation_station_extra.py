@@ -52,12 +52,12 @@ def CreateClutterClearingYcbObjectList():
     ycb_object_pairs = []
 
     # The cracker box pose.
-    X_WCracker = _xyz_rpy_deg([-0.325, -0.65, 0.165], [-90, 0, -65])
+    X_WCracker = _xyz_rpy_deg([-0.275, -0.665, 0.165], [-90, 0, 185])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/003_cracker_box.sdf", X_WCracker))
 
     # The sugar box pose.
-    X_WSugar = _xyz_rpy_deg([-0.25, -0.55, 0.165], [90, 0, 185])
+    X_WSugar = _xyz_rpy_deg([-0.315, -0.55, 0.165], [90, 0, -35])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/004_sugar_box.sdf", X_WSugar))
 
@@ -67,18 +67,18 @@ def CreateClutterClearingYcbObjectList():
         ("drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WSoup))
 
     # The mustard bottle pose.
-    X_WMustard = _xyz_rpy_deg([0.05, -0.66, 0.15], [-90, 0, 190])
+    X_WMustard = _xyz_rpy_deg([0.05, -0.615, 0.15], [-90, 0, 190])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
          X_WMustard))
 
     # The gelatin box pose.
-    X_WGelatin = _xyz_rpy_deg([-0.15, -0.72, 0.105], [-90, 0, 210])
+    X_WGelatin = _xyz_rpy_deg([-0.075, -0.65, 0.105], [-90, 0, 65])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf", X_WGelatin))
 
     # The potted meat can pose.
-    X_WMeat = _xyz_rpy_deg([-0.175, -0.62, 0.105], [-90, 0, 145])
+    X_WMeat = _xyz_rpy_deg([-0.175, -0.55, 0.105], [-90, 0, 45])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/010_potted_meat_can.sdf", X_WMeat))
 
