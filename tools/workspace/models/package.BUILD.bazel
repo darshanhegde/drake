@@ -10,6 +10,7 @@ exports_files(
         "jaco_description/**",
         "skydio_2/**",
         "wsg_50_description/**",
+        "xarm7_description/**", 
         "ycb/meshes/**",
     ], allow_empty = False),
     visibility = ["//visibility:public"],

@@ -238,6 +238,19 @@ drake_py_binary(
     ],
 )
 
+drake_py_binary(
+    name = "test_xarm7_simulation", 
+    srcs = ["test_xarm7_simulation.py"], 
+    data = [
+        "//manipulation/models/xarm7_description:models",
+        "//manipulation/models/franka_description:models", 
+        "//manipulation/models/jaco_description:models"
+    ],
+    deps = [
+        "//bindings/pydrake"
+    ]
+)
+
 install_data()
 
 add_lint_tests()

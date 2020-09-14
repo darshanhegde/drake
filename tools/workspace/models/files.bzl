@@ -70,6 +70,41 @@ def wsg_50_description_mesh_files():
         "wsg_50_description/meshes/wsg_body.obj",
     ]
 
+
+def xarm7_description_mesh_files():
+    return [
+        "xarm7_description/meshes/xarm7/visuals/link1.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link1.obj",
+        "xarm7_description/meshes/xarm7/visuals/link2.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link2.obj",
+        "xarm7_description/meshes/xarm7/visuals/link3.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link3.obj",
+        "xarm7_description/meshes/xarm7/visuals/link4.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link4.obj",
+        "xarm7_description/meshes/xarm7/visuals/link5.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link5.obj",
+        "xarm7_description/meshes/xarm7/visuals/link6.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link6.obj",
+        "xarm7_description/meshes/xarm7/visuals/link7.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link7.obj",
+        "xarm7_description/meshes/xarm7/visuals/link_base.mtl",
+        "xarm7_description/meshes/xarm7/visuals/link_base.obj",
+        "xarm7_description/meshes/xarm_gripper/visuals/base_link.mtl",
+        "xarm7_description/meshes/xarm_gripper/visuals/base_link.obj",
+        "xarm7_description/meshes/xarm_gripper/visuals/left_finger.mtl", 
+        "xarm7_description/meshes/xarm_gripper/visuals/left_finger.obj",
+        "xarm7_description/meshes/xarm_gripper/visuals/left_inner_knuckle.mtl",
+        "xarm7_description/meshes/xarm_gripper/visuals/left_inner_knuckle.obj", 
+        "xarm7_description/meshes/xarm_gripper/visuals/left_outer_knuckle.mtl", 
+        "xarm7_description/meshes/xarm_gripper/visuals/left_outer_knuckle.obj", 
+        "xarm7_description/meshes/xarm_gripper/visuals/right_finger.mtl", 
+        "xarm7_description/meshes/xarm_gripper/visuals/right_finger.obj", 
+        "xarm7_description/meshes/xarm_gripper/visuals/right_inner_knuckle.mtl", 
+        "xarm7_description/meshes/xarm_gripper/visuals/right_inner_knuckle.obj", 
+        "xarm7_description/meshes/xarm_gripper/visuals/right_outer_knuckle.mtl", 
+        "xarm7_description/meshes/xarm_gripper/visuals/right_outer_knuckle.obj"
+    ]
+
 def ycb_mesh_files():
     """Manual enumeration of mesh files, to avoid needing to write extra Bazel
     logic.

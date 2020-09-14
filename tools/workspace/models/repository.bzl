@@ -7,9 +7,9 @@ def models_repository(
         mirrors = None):
     github_archive(
         name = name,
-        repository = "RobotLocomotion/models",
-        commit = "745547fbec8ec8cb10be6ef23f7f0cd5ba49d321",
-        sha256 = "a7ab36339c935a6e487f0275d8c5a38148658641e05207201cfd591d2ce60437",  # noqa
+        repository = "darshanhegde/models",
+        commit = "b7bf29dae324177dd72bdb71945726ab7e2a3d61",
         build_file = "@drake//tools/workspace/models:package.BUILD.bazel",
-        mirrors = mirrors,
+        local_repository_override="/home/darshanhegde/source/models",
+        mirrors=mirrors
     )
